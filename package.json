@@ -1,0 +1,12 @@
+{
+  "name": "strict-schema-check",
+  "version": "1.0.0",
+  "description": "Catch the tool-schema problems that cause 400s under strict mode / structured outputs.",
+  "bin": { "strict-schema-check": "./strict-schema-check.js" },
+  "main": "strict-schema-check.js",
+  "scripts": { "test": "node test.js" },
+  "files": ["strict-schema-check.js", "README.md", "LICENSE"],
+  "keywords": ["json-schema", "strict-mode", "tool-calling", "function-calling", "llm", "ai-agents", "anthropic", "openai"],
+  "license": "MIT",
+  "engines": { "node": ">=14" }
+}
