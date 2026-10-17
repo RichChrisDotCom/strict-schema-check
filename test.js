@@ -19,18 +19,26 @@ t("missing additionalProperties is an error", () =>
   assert.strictEqual(errs({ type: "object", properties: { a: { type: "string" } }, required: ["a"] }), 1));
 t("a property missing from required is an error", () =>
   assert.strictEqual(errs({ type: "object", properties: { a: { type: "string" }, b: { type: "string" } }, required: ["a"], additionalProperties: false }), 1));
-t("maxLength is rejected", () =>
-  assert.strictEqual(errs({ type: "object", properties: { a: { type: "string", maxLength: 5 } }, required: ["a"], additionalProperties: false }), 1));
-t("pattern is rejected", () =>
-  assert.strictEqual(errs({ type: "object", properties: { a: { type: "string", pattern: "^x$" } }, required: ["a"], additionalProperties: false }), 1));
-t("$ref is rejected", () =>
-  assert.strictEqual(errs({ type: "object", properties: { a: { $ref: "#/x" } }, required: ["a"], additionalProperties: false }), 1));
+t("maxLength is stripped, not fatal (warn)", () =>
+  assert.strictEqual(errs({ type: "object", properties: { a: { type: "string", maxLength: 5 } }, required: ["a"], additionalProperties: false }), 0));
+t("pattern is stripped, not fatal (warn)", () =>
+  assert.strictEqual(errs({ type: "object", properties: { a: { type: "string", pattern: "^x$" } }, required: ["a"], additionalProperties: false }), 0));
+t("$ref is vendor-dependent (warn, not fatal)", () =>
+  assert.strictEqual(errs({ type: "object", properties: { a: { $ref: "#/x" } }, required: ["a"], additionalProperties: false }), 0));
+t("dropped keywords still produce a warning", () => {
+  const r = validateStrict({ type: "object", properties: { a: { type: "string", maxLength: 5 } }, required: ["a"], additionalProperties: false });
+  assert.ok(r.issues.some((i) => i.level === "warn" && /maxLength/.test(i.msg)));
+});
+t("a schema with ONLY dropped keywords passes the check", () => {
+  const r = check({ type: "object", properties: { a: { type: "string", maxLength: 5 } }, required: ["a"], additionalProperties: false });
+  assert.strictEqual(r.totalErr, 0);
+});
 t("oneOf is rejected", () =>
   assert.strictEqual(errs({ type: "object", properties: { a: { oneOf: [{ type: "string" }] } }, required: ["a"], additionalProperties: false }), 1));
 t("anyOf at the root is rejected", () =>
   assert.strictEqual(errs({ anyOf: [OK] }), 1));
-t("an unsupported format is rejected", () =>
-  assert.strictEqual(errs({ type: "object", properties: { a: { type: "string", format: "phone" } }, required: ["a"], additionalProperties: false }), 1));
+t("an unsupported format is stripped, not fatal (warn)", () =>
+  assert.strictEqual(errs({ type: "object", properties: { a: { type: "string", format: "phone" } }, required: ["a"], additionalProperties: false }), 0));
 t("a supported format is accepted", () =>
   assert.strictEqual(errs({ type: "object", properties: { a: { type: "string", format: "email" } }, required: ["a"], additionalProperties: false }), 0));
 t("a nested object missing additionalProperties is an error", () =>

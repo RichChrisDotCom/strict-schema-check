@@ -27,10 +27,19 @@
 const fs = require("fs");
 
 const FORMATS = ["date-time", "date", "time", "duration", "email", "hostname", "uri", "ipv4", "ipv6", "uuid"];
-const BANNED = ["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
-                "minLength", "maxLength", "pattern", "minItems", "maxItems", "uniqueItems",
-                "minProperties", "maxProperties", "$ref", "definitions", "$defs"];
-const SOFT = ["oneOf", "allOf"];
+// Keywords strict mode STRIPS from the schema. The request still compiles, so these are
+// WARNINGS, not blockers — but the constraint silently disappears, so enforce it yourself.
+// (Anthropic docs + the inspect_ai strict-tool PR: extended validation keywords are stripped.)
+const DROPPED = ["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
+                 "minLength", "maxLength", "pattern", "minItems", "maxItems", "uniqueItems",
+                 "minProperties", "maxProperties", "definitions", "$defs"];
+// Composition that is commonly REJECTED outright — these do fail the request.
+const FATAL_COMPOSITION = ["oneOf", "allOf"];
+// $ref support varies by vendor (allowed in some profiles, rejected in others) — warn, don't block.
+const VENDOR_DEPENDENT = ["$ref"];
+// Kept for the exported API.
+const BANNED = DROPPED;
+const SOFT = FATAL_COMPOSITION;
 const CAPS = { tools: 20, optionalParams: 24, unions: 16 };
 
 function isObj(n) { return n && typeof n === "object" && !Array.isArray(n); }
@@ -43,17 +52,20 @@ function validateStrict(schema) {
   function walk(node, path) {
     if (!isObj(node)) return;
 
-    for (const k of BANNED) {
-      if (k in node) issues.push({ level: "error", path, msg: `'${k}' is rejected or ignored in strict mode` });
+    for (const k of DROPPED) {
+      if (k in node) issues.push({ level: "warn", path, msg: `'${k}' is stripped in strict mode — the request compiles but the constraint is silently dropped, so enforce it at your own boundary` });
     }
-    for (const k of SOFT) {
+    for (const k of VENDOR_DEPENDENT) {
+      if (k in node) issues.push({ level: "warn", path, msg: `'${k}' support varies by vendor — verify it against your provider before relying on it` });
+    }
+    for (const k of FATAL_COMPOSITION) {
       if (k in node) issues.push({ level: "error", path, msg: `'${k}' is commonly rejected in strict mode` });
     }
     if ("anyOf" in node && path === "$") {
       issues.push({ level: "error", path, msg: "'anyOf' cannot sit at the root of a strict schema" });
     }
     if (node.format && FORMATS.indexOf(node.format) === -1) {
-      issues.push({ level: "error", path, msg: `unsupported format '${node.format}' — it is dropped silently` });
+      issues.push({ level: "warn", path, msg: `unsupported format '${node.format}' — it is dropped silently` });
     }
     if (Array.isArray(node.type) && node.type.length > 1) {
       unions++;
@@ -274,7 +286,9 @@ function main() {
   if (flags.has("--quiet")) return failed ? 1 : 0;
 
   const head = r.batch ? `${r.tools} tool${r.tools === 1 ? "" : "s"} checked` : "schema checked";
-  console.log(`${head} — ${r.totalErr === 0 ? "no blocking problems" : r.totalErr + " blocking problem" + (r.totalErr === 1 ? "" : "s")}`);
+  const warnCount = r.results.reduce((n, x) => n + x.issues.filter((i) => i.level === "warn").length, 0);
+  console.log(`${head} — ${r.totalErr === 0 ? "no blocking problems" : r.totalErr + " blocking problem" + (r.totalErr === 1 ? "" : "s")}`
+    + (warnCount ? ` (${warnCount} warning${warnCount === 1 ? "" : "s"})` : ""));
   if (!r.batch && r.results[0].wrapped) console.log(`  (checked the "${r.results[0].wrapped}" block of the tool definition)`);
   console.log("");
 

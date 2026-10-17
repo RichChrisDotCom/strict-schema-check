@@ -109,16 +109,26 @@ node /tmp/ssc/strict-schema-check.js tools.json
 
 ## What it checks
 
-| Rule | Why it fails |
+Two severities, because they mean different things: **error** stops the request, **warning** means the
+schema is accepted but not doing what it says.
+
+### Errors — these fail the request
+
+| Rule | Why |
 |---|---|
-| `additionalProperties: false` on **every** object, nested included | JSON Schema defaults it to `true`; an open object has no closed grammar to compile. This is the single most common cause of a 400. |
+| `additionalProperties: false` on **every** object, nested included | JSON Schema defaults it to `true`; an open object has no closed grammar to compile. The API says *"For 'object' type, 'additionalProperties' must be explicitly set to false"* (OpenAI: *"additionalProperties is required to be supplied and to be false"*). This is the single most common 400. |
 | Every key in `properties` also appears in `required` | Strict mode has no notion of an optional field. Express optionality as a union with null. |
-| No `minimum` / `maximum` / `multipleOf` | Numeric bounds are rejected or ignored. |
-| No `minLength` / `maxLength` / `pattern` | String bounds are rejected or ignored — and dropped silently from the wire. |
-| No external `$ref`, `definitions`, `$defs`, recursive schemas | Not supported. |
 | No `oneOf` / `allOf` | Commonly rejected. `anyOf` works but cannot sit at the root. |
-| `format` from a supported set only | `date-time`, `date`, `time`, `duration`, `email`, `hostname`, `uri`, `ipv4`, `ipv6`, `uuid`. Anything else is dropped silently. |
-| Per-request caps | 20 strict tools · 24 cumulative optional parameters · 16 union-typed parameters, across all strict schemas in one request. |
+| Per-request caps | 20 strict tools · 24 cumulative optional parameters · 16 union-typed parameters, across all strict schemas in one request. Past them: *"Schema is too complex for compilation."* |
+
+### Warnings — these compile, but the constraint is silently dropped
+
+| Rule | Why |
+|---|---|
+| `minimum` / `maximum` / `multipleOf` | Stripped. The request succeeds and the bound never reaches the model. |
+| `minLength` / `maxLength` / `pattern` | Stripped — a length limit you thought you had isn't there. |
+| `format` outside the supported set | Dropped without an error. Supported: `date-time`, `date`, `time`, `duration`, `email`, `hostname`, `uri`, `ipv4`, `ipv6`, `uuid`. |
+| `$ref`, `definitions`, `$defs` | Support varies by vendor — verify it against your provider. |
 
 Strict mode constrains the **shape**. It does not check your business rules — validate those at your
 own boundary.
