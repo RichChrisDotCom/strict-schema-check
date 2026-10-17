@@ -1,0 +1,45 @@
+name: strict-schema-check
+description: Catch the tool-schema problems that cause 400s under strict mode / structured outputs.
+author: Rich Chris
+
+branding:
+  icon: check-circle
+  color: yellow
+
+inputs:
+  path:
+    description: >-
+      Path to a JSON file containing a tool definition ({name, input_schema}),
+      a bare JSON Schema, or an array of tool definitions (checked as one request).
+    required: true
+  quiet:
+    description: Skip the human-readable report; report only through the exit code.
+    required: false
+    default: "false"
+
+outputs:
+  errors:
+    description: Number of blocking problems found (0 means the schema is clean).
+    value: ${{ steps.check.outputs.errors }}
+
+runs:
+  using: composite
+  steps:
+    - id: check
+      shell: bash
+      run: |
+        set +e
+        node "${{ github.action_path }}/strict-schema-check.js" "${{ inputs.path }}" --json > "$RUNNER_TEMP/ssc.json"
+        code=$?
+        set -e
+        if [ "${{ inputs.quiet }}" != "true" ]; then
+          node "${{ github.action_path }}/strict-schema-check.js" "${{ inputs.path }}" || true
+        fi
+        errors=$(node -e "let n=0;try{n=require(process.argv[1]).errors}catch(e){};console.log(n)" "$RUNNER_TEMP/ssc.json")
+        echo "errors=$errors" >> "$GITHUB_OUTPUT"
+        if [ "$code" -eq 2 ]; then
+          echo "::error::strict-schema-check could not read or parse ${{ inputs.path }}"
+        elif [ "$code" -ne 0 ]; then
+          echo "::error::$errors blocking problem(s) in ${{ inputs.path }} — see the report above"
+        fi
+        exit $code

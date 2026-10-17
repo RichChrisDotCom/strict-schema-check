@@ -1,0 +1,61 @@
+# Proves the action works as published: this workflow USES the composite action.
+name: selftest
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Unit tests
+        run: node test.js
+
+  action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Write a clean schema
+        run: |
+          cat > /tmp/ok.json <<'JSON'
+          {"name":"lookup_order","input_schema":{"type":"object","properties":{"order_id":{"type":"string"}},"required":["order_id"],"additionalProperties":false}}
+          JSON
+
+      - name: Action passes on a clean schema
+        id: ok
+        uses: ./
+        with:
+          path: /tmp/ok.json
+
+      - name: Assert it reported zero errors
+        run: |
+          test "${{ steps.ok.outputs.errors }}" = "0" || { echo "expected 0 errors, got ${{ steps.ok.outputs.errors }}"; exit 1; }
+
+      - name: Write a broken schema
+        run: |
+          cat > /tmp/bad.json <<'JSON'
+          {"name":"lookup_order","input_schema":{"type":"object","properties":{"order_id":{"type":"string","maxLength":12}},"required":["order_id"]}}
+          JSON
+
+      - name: Action fails on a broken schema (inverted so the job stays green)
+        id: bad
+        continue-on-error: true
+        uses: ./
+        with:
+          path: /tmp/bad.json
+
+      - name: Assert the action failed and counted the problems
+        run: |
+          test "${{ steps.bad.outcome }}" = "failure" || { echo "expected the action to fail on a broken schema"; exit 1; }
+          test "${{ steps.bad.outputs.errors }}" -ge 2 || { echo "expected >=2 errors, got ${{ steps.bad.outputs.errors }}"; exit 1; }

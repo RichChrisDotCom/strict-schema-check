@@ -59,6 +59,8 @@ per-request caps too, which only make sense across the whole toolset.
 
 ### In CI
 
+As a GitHub Action — one step:
+
 ```yaml
 # .github/workflows/schemas.yml
 name: schemas
@@ -68,10 +70,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: '20' }
-      - run: git clone --depth 1 https://github.com/RichChrisDotCom/strict-schema-check.git /tmp/ssc
-      - run: node /tmp/ssc/strict-schema-check.js tools.json
+      - uses: RichChrisDotCom/strict-schema-check@v1
+        with:
+          path: tools.json
+```
+
+It fails the job when the schema has blocking problems, and exposes the count as the `errors` output
+(useful for a PR comment). Pin `@v1` or a full commit SHA.
+
+Or wire it up by hand:
+
+```bash
+git clone --depth 1 https://github.com/RichChrisDotCom/strict-schema-check.git /tmp/ssc
+node /tmp/ssc/strict-schema-check.js tools.json
 ```
 
 ## What it checks
