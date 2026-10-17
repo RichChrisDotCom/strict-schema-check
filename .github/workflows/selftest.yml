@@ -45,7 +45,7 @@ jobs:
       - name: Write a broken schema
         run: |
           cat > /tmp/bad.json <<'JSON'
-          {"name":"lookup_order","input_schema":{"type":"object","properties":{"order_id":{"type":"string","maxLength":12}},"required":["order_id"]}}
+          {"name":"lookup_order","input_schema":{"type":"object","properties":{"order_id":{"type":"string"},"note":{"type":"string"}},"required":["order_id"]}}
           JSON
 
       - name: Action fails on a broken schema (inverted so the job stays green)
@@ -58,7 +58,25 @@ jobs:
       - name: Assert the action failed and counted the problems
         run: |
           test "${{ steps.bad.outcome }}" = "failure" || { echo "expected the action to fail on a broken schema"; exit 1; }
+          # two FATAL problems: missing additionalProperties, and 'note' not in required.
+          # (maxLength alone would now be a warning, not an error.)
           test "${{ steps.bad.outputs.errors }}" -ge 2 || { echo "expected >=2 errors, got ${{ steps.bad.outputs.errors }}"; exit 1; }
+
+      - name: Write a schema whose only problems are DROPPED keywords
+        run: |
+          cat > /tmp/warn.json <<'JSON'
+          {"name":"lookup_order","input_schema":{"type":"object","properties":{"order_id":{"type":"string","maxLength":12,"pattern":"^ORD-"}},"required":["order_id"],"additionalProperties":false}}
+          JSON
+
+      - name: A warn-only schema must PASS (this was a false positive once)
+        id: warn
+        uses: ./
+        with:
+          path: /tmp/warn.json
+
+      - name: Assert it passed with zero errors
+        run: |
+          test "${{ steps.warn.outputs.errors }}" = "0" || { echo "warn-only schema must report 0 errors, got ${{ steps.warn.outputs.errors }}"; exit 1; }
 
   pinned:
     # Proves the exact usage documented in the README works: the PUBLISHED action by tag,
