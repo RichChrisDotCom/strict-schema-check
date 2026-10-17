@@ -63,5 +63,54 @@ t("the union cap fires past 16", () => {
   assert.ok(check(many).capIssues.some((c) => /union/.test(c)));
 });
 
+// ---- fixSchema ----
+const { fixSchema } = require("./strict-schema-check.js");
+const BROKEN = {
+  type: "object",
+  properties: {
+    order_id: { type: "string", maxLength: 12 },
+    note: { type: "string", format: "phone" },
+    nested: { type: "object", properties: { x: { type: "string" } } },
+  },
+  required: ["order_id", "ghost"],
+};
+
+t("fix: adds additionalProperties to every object", () => {
+  const { fixed } = fixSchema(BROKEN);
+  assert.strictEqual(fixed.additionalProperties, false);
+  assert.strictEqual(fixed.properties.nested.additionalProperties, false);
+});
+t("fix: adds every property to required", () => {
+  const { fixed } = fixSchema(BROKEN);
+  assert.deepStrictEqual(fixed.required.slice().sort(), ["nested", "note", "order_id"]);
+});
+t("fix: drops required entries that are not in properties", () => {
+  const { fixed } = fixSchema(BROKEN);
+  assert.ok(!fixed.required.includes("ghost"));
+});
+t("fix: strips rejected keywords and unsupported formats", () => {
+  const { fixed } = fixSchema(BROKEN);
+  assert.ok(!("maxLength" in fixed.properties.order_id));
+  assert.ok(!("format" in fixed.properties.note));
+});
+t("fix: the repaired schema passes the check", () => {
+  const { fixed } = fixSchema(BROKEN);
+  assert.strictEqual(validateStrict(fixed).issues.filter((i) => i.level === "error").length, 0);
+});
+t("fix: does not mutate the input", () => {
+  const before = JSON.stringify(BROKEN);
+  fixSchema(BROKEN);
+  assert.strictEqual(JSON.stringify(BROKEN), before);
+});
+t("fix: composition is reported as MANUAL, never silently rewritten", () => {
+  const r = fixSchema({ type: "object", properties: { a: { oneOf: [{ type: "string" }] } }, required: ["a"], additionalProperties: false });
+  assert.ok(r.manual.some((m) => /oneOf/.test(m)));
+  assert.ok("oneOf" in r.fixed.properties.a, "oneOf must be left in place for the human to decide");
+});
+t("fix: root anyOf is reported as MANUAL", () => {
+  const r = fixSchema({ anyOf: [{ type: "object", properties: {}, additionalProperties: false }] });
+  assert.ok(r.manual.some((m) => /anyOf/.test(m)));
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

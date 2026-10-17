@@ -93,6 +93,70 @@ function validateStrict(schema) {
   return { issues, optionalParams, unions, objects };
 }
 
+
+// Mechanically repair the problems that CAN be repaired without changing meaning.
+// Composition (oneOf/allOf) and root-level anyOf are reported as manual, never silently rewritten.
+function fixSchema(schema) {
+  const changes = [], manual = [];
+  const fixed = JSON.parse(JSON.stringify(schema));
+
+  function walk(node, path) {
+    if (!isObj(node)) return;
+
+    for (const k of BANNED) {
+      if (k in node) { delete node[k]; changes.push(`removed '${k}' at ${path}`); }
+    }
+    if (node.format && FORMATS.indexOf(node.format) === -1) {
+      changes.push(`removed unsupported format '${node.format}' at ${path}`);
+      delete node.format;
+    }
+    for (const k of SOFT) {
+      if (k in node) manual.push(`'${k}' at ${path} — cannot be auto-fixed; rewrite it or make this tool non-strict`);
+    }
+    if ("anyOf" in node && path === "$") {
+      manual.push(`'anyOf' at the root — restructure it (wrap the alternatives in an object)`);
+    }
+
+    const looksObject = node.type === "object" ||
+      (Array.isArray(node.type) && node.type.indexOf("object") !== -1) || isObj(node.properties);
+    if (looksObject) {
+      if (node.additionalProperties !== false) {
+        node.additionalProperties = false;
+        changes.push(`set "additionalProperties": false at ${path}`);
+      }
+      const props = isObj(node.properties) ? Object.keys(node.properties) : [];
+
+      if (Array.isArray(node.required)) {
+        const orphans = node.required.filter((k) => props.indexOf(k) === -1);
+        if (orphans.length) {
+          node.required = node.required.filter((k) => props.indexOf(k) !== -1);
+          changes.push(`removed from "required" (not defined in properties) at ${path}: ${orphans.join(", ")}`);
+        }
+      }
+      if (props.length) {
+        const req = Array.isArray(node.required) ? node.required.slice() : [];
+        const added = props.filter((k) => req.indexOf(k) === -1);
+        if (added.length) {
+          node.required = req.concat(added);
+          changes.push(`added to "required" at ${path}: ${added.join(", ")}`);
+        }
+      } else if ("required" in node) {
+        delete node.required;
+        changes.push(`removed empty "required" at ${path}`);
+      }
+
+      for (const k of props) walk(node.properties[k], `${path}.properties.${k}`);
+    }
+
+    if (isObj(node.items)) walk(node.items, `${path}.items`);
+    if (Array.isArray(node.anyOf)) node.anyOf.forEach((s, i) => walk(s, `${path}.anyOf[${i}]`));
+    if (isObj(node.additionalProperties)) walk(node.additionalProperties, `${path}.additionalProperties`);
+  }
+
+  walk(fixed, "$");
+  return { fixed, changes, manual };
+}
+
 function extractSchema(parsed) {
   if (isObj(parsed) && isObj(parsed.input_schema)) return { schema: parsed.input_schema, label: "input_schema" };
   if (isObj(parsed) && isObj(parsed.parameters)) return { schema: parsed.parameters, label: "parameters" };
@@ -154,6 +218,46 @@ function main() {
     return 2;
   }
 
+  // --fix: repair what can be repaired mechanically, print the fixed JSON to stdout and the
+  // changelog to stderr, so `strict-schema-check bad.json --fix > fixed.json` just works.
+  if (flags.has("--fix")) {
+    const isBatch = Array.isArray(parsed);
+    const items = isBatch ? parsed : [parsed];
+    const out = [];
+    let changes = 0, manualCount = 0;
+
+    items.forEach((item, i) => {
+      const ex = extractSchema(item);
+      const r = fixSchema(ex.schema);
+      changes += r.changes.length;
+      manualCount += r.manual.length;
+
+      if (ex.label) {
+        const clone = JSON.parse(JSON.stringify(item));
+        clone[ex.label] = r.fixed;
+        out.push(clone);
+      } else {
+        out.push(r.fixed);
+      }
+      const name = isObj(item) && typeof item.name === "string" ? ` (${item.name})` : "";
+      console.error(`tool ${i + 1}${name}: ${r.changes.length} change(s), ${r.manual.length} needing a decision`);
+      for (const c of r.changes) console.error(`  fixed:  ${c}`);
+      for (const m of r.manual) console.error(`  MANUAL: ${m}`);
+    });
+
+    const result = isBatch ? out : out[0];
+    console.log(JSON.stringify(result, null, 2));
+
+    const after = check(result);
+    const stillBad = after.totalErr > 0 || after.capIssues.length > 0;
+    console.error("");
+    console.error(`${changes} change(s) applied` + (manualCount ? `, ${manualCount} item(s) need a human decision` : ""));
+    console.error(stillBad
+      ? "NOTE: the fixed schema still has blocking problems — see the MANUAL items above."
+      : "The fixed schema passes the check.");
+    return (manualCount || stillBad) ? 1 : 0;
+  }
+
   const r = check(parsed);
   const failed = r.totalErr > 0 || r.capIssues.length > 0;
 
@@ -197,4 +301,4 @@ function main() {
 
 if (require.main === module) process.exit(main());
 
-module.exports = { validateStrict, check, FORMATS, BANNED, CAPS };
+module.exports = { validateStrict, check, fixSchema, FORMATS, BANNED, CAPS };

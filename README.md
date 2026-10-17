@@ -49,7 +49,29 @@ strict-schema-check tools.json          # a file
 cat tools.json | strict-schema-check -  # stdin
 strict-schema-check tools.json --json   # machine-readable
 strict-schema-check tools.json --quiet  # exit code only
+strict-schema-check tools.json --fix    # print a repaired schema
 ```
+
+### Fix, don't just complain
+
+`--fix` applies the repairs that don't change meaning — adds `additionalProperties: false` to every
+object, completes `required`, drops `required` entries that aren't in `properties`, strips rejected
+keywords and unsupported formats — then re-checks the result.
+
+The repaired JSON goes to **stdout** and the changelog to **stderr**, so it pipes cleanly:
+
+```bash
+strict-schema-check tools.json --fix > tools.fixed.json
+```
+
+Anything that *would* change meaning is reported for you to decide, never silently rewritten:
+
+```
+  MANUAL: 'oneOf' at $.properties.a — cannot be auto-fixed; rewrite it or make this tool non-strict
+  MANUAL: 'anyOf' at the root — restructure it (wrap the alternatives in an object)
+```
+
+Exit code is `0` only if nothing needs a human decision and the repaired schema passes.
 
 **Input can be** a single tool definition (`{name, input_schema}` — or `parameters` for OpenAI-shaped
 definitions), a bare JSON Schema, or **an array of tools**. Pass the array and it checks the
