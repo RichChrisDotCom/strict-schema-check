@@ -120,5 +120,25 @@ t("fix: root anyOf is reported as MANUAL", () => {
   assert.ok(r.manual.some((m) => /anyOf/.test(m)));
 });
 
+t("a non-strict tool definition is flagged as not subject to strict rules", () => {
+  const r = check({ name: "x", input_schema: { type: "object", properties: {}, additionalProperties: false } });
+  assert.ok(r.results[0].issues.some((i) => i.level === "info" && /strict/.test(i.msg)));
+});
+t("a strict:true tool definition gets no such note", () => {
+  const r = check({ name: "x", strict: true, input_schema: { type: "object", properties: {}, additionalProperties: false } });
+  assert.ok(!r.results[0].issues.some((i) => i.level === "info"));
+});
+t("a non-strict tool does not fail the run, but its findings are still shown", () => {
+  const r = check({ name: "x", input_schema: { type: "object", properties: { a: { type: "string" } }, required: ["a"] } });
+  assert.strictEqual(r.totalErr, 0);            // non-strict: the request is not rejected
+  assert.strictEqual(r.notStrict, 1);
+  assert.ok(r.results[0].issues.some((i) => i.level === "error")); // still reported
+});
+t("the same schema WITH strict:true does fail", () => {
+  const r = check({ name: "x", strict: true, input_schema: { type: "object", properties: { a: { type: "string" } }, required: ["a"] } });
+  assert.strictEqual(r.totalErr, 1);
+  assert.strictEqual(r.notStrict, 0);
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

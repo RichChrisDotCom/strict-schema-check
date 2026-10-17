@@ -179,18 +179,33 @@ function check(parsed) {
   const batch = Array.isArray(parsed);
   const items = batch ? parsed : [parsed];
   const results = [];
-  let totalOpt = 0, totalUnions = 0, totalErr = 0;
+  let totalOpt = 0, totalUnions = 0, totalErr = 0, notStrict = 0;
 
   items.forEach((item, i) => {
     const ex = extractSchema(item);
     const r = validateStrict(ex.schema);
     const errs = r.issues.filter((x) => x.level === "error").length;
+    // A tool definition that isn't marked strict:true does NOT have to satisfy any of this.
+    // Saying so prevents a wall of errors on a perfectly valid non-strict tool.
+    if (isObj(item) && typeof item.name === "string" && item.strict !== true) {
+      notStrict++;
+      r.issues.unshift({
+        level: "info", path: "$",
+        msg: 'this tool is not marked "strict": true, so none of these rules apply unless you enable strict mode',
+      });
+      // Non-strict requests are not rejected for any of this, so they must not fail the run.
+      // The findings are still shown — they are what you'd have to fix to turn strict on.
+      totalOpt += r.optionalParams;
+      totalUnions += r.unions;
+      results.push({ name: item.name, issues: r.issues, errors: errs, wrapped: ex.label, notStrict: true });
+      return;
+    }
     totalOpt += r.optionalParams;
     totalUnions += r.unions;
     totalErr += errs;
     results.push({
       name: (isObj(item) && typeof item.name === "string" && item.name) || `tool ${i + 1}`,
-      issues: r.issues, errors: errs, wrapped: ex.label,
+      issues: r.issues, errors: errs, wrapped: ex.label, notStrict: false,
     });
   });
 
@@ -201,7 +216,7 @@ function check(parsed) {
     if (totalUnions > CAPS.unions) capIssues.push(`union-typed parameters total ${totalUnions} — the cap is ${CAPS.unions} per request`);
   }
 
-  return { batch, results, totalErr, totalOpt, totalUnions, capIssues, tools: items.length };
+  return { batch, results, totalErr, totalOpt, totalUnions, capIssues, tools: items.length, notStrict };
 }
 
 function main() {
@@ -293,7 +308,10 @@ function main() {
   console.log("");
 
   for (const res of r.results) {
-    if (r.batch) console.log(`${res.errors ? "x" : "ok"} ${res.name}${res.errors ? ` (${res.errors})` : ""}`);
+    if (r.batch) {
+      const tag = res.notStrict ? "non-strict" : (res.errors ? `${res.errors} error(s)` : "clean");
+      console.log(`${res.notStrict ? "-" : (res.errors ? "x" : "ok")} ${res.name} (${tag})`);
+    }
     for (const i of res.issues) {
       const tag = i.level === "error" ? "ERROR" : i.level === "warn" ? "WARN " : "INFO ";
       console.log(`  ${tag} ${i.path} — ${i.msg}`);
@@ -307,6 +325,10 @@ function main() {
   if (failed) {
     console.log("FAIL — fix the errors above before sending this schema to the API.");
     if (!r.batch) console.log("       (paste the whole toolset as an array to check the per-request caps)");
+  } else if (r.notStrict) {
+    console.log(`PASS — nothing here blocks the request. ${r.notStrict} tool(s) are not marked`);
+    console.log('       "strict": true, so the findings above do not apply yet — they are what');
+    console.log("       you would have to fix to turn strict mode on.");
   } else {
     console.log("PASS — no blocking problems found.");
   }
