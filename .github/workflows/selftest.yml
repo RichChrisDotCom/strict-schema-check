@@ -59,3 +59,23 @@ jobs:
         run: |
           test "${{ steps.bad.outcome }}" = "failure" || { echo "expected the action to fail on a broken schema"; exit 1; }
           test "${{ steps.bad.outputs.errors }}" -ge 2 || { echo "expected >=2 errors, got ${{ steps.bad.outputs.errors }}"; exit 1; }
+
+  pinned:
+    # Proves the exact usage documented in the README works: the PUBLISHED action by tag,
+    # not the local path. Uses the v1 release.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write a clean schema
+        run: |
+          cat > /tmp/ok.json <<'JSON'
+          {"name":"lookup_order","input_schema":{"type":"object","properties":{"order_id":{"type":"string"}},"required":["order_id"],"additionalProperties":false}}
+          JSON
+      - name: Run the published action (pinned to v1)
+        id: pinned
+        uses: RichChrisDotCom/strict-schema-check@v1
+        with:
+          path: /tmp/ok.json
+      - name: Assert it reported zero errors
+        run: |
+          test "${{ steps.pinned.outputs.errors }}" = "0" || { echo "expected 0 errors, got ${{ steps.pinned.outputs.errors }}"; exit 1; }
